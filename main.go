@@ -8,7 +8,13 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 )
-var clients = make(map[*websocket.Conn]bool)
+
+type client struct {
+	connection	*websocket.Conn
+	name				string 
+}
+var clients_list = make(map[client]bool)
+
 var broadcast =make(chan string)
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -30,14 +36,17 @@ func hello (w http.ResponseWriter, r *http.Request) {
 
 func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := Upgrader.Upgrade(w, r, nil)
-	log.Println(conn.LocalAddr())
-
+	log.Println(conn.RemoteAddr())
+	checkws()
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer conn.Close()
-	clients[conn]=true
+	client_id := len(clients_list)+1
+	var name_conn = fmt.Sprintf("connection no. -> %d",client_id)
+	connection := client{conn,name_conn}
+	clients_list[connection]=true
 
 	log.Println("Client connected")
 
@@ -56,7 +65,7 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Println("Received message:", MessAge.Hello, messageType)
-		msg:=fmt.Sprintf(`<div id="chat" hx-swap-oob="beforeend"><p>message recived %s</p></div>`,MessAge.Hello)
+		msg:=fmt.Sprintf(`<div id="chat" hx-swap-oob="beforeend"><p> msg from %d : %s</p></div>`,client_id,MessAge.Hello)
 		broadcast <- msg
 //		err = conn.WriteMessage(websocket.TextMessage, []byte(msg))
 //		if err != nil {
@@ -70,14 +79,34 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 func handlemsg(){
 	for {
 		msg := <-broadcast
-		for client := range clients {
-			err:=client.WriteMessage(websocket.TextMessage,[]byte(msg))
+		for client := range clients_list {
+			err:=client.connection.WriteMessage(websocket.TextMessage,[]byte(msg))
 			if err!= nil {
-				client.Close()
+				client.connection.Close()
+				fmt.Println(err)
 				log.Println("failed to write message")
 			}
 		}
 	}
+}
+
+func checkws(){
+		for cleint := range clients_list {
+			test := true
+			for ppl := range clients_list{
+				if test{
+					if cleint == ppl {
+						test = false
+					}
+				} else {
+					log.Println(ppl.connection.LocalAddr())
+					ppl.connection.Close()
+					delete(clients_list,ppl)
+					log.Print("no of clients ", len(clients_list))
+				}
+			}
+		}
+	
 }
 
 func main() {
